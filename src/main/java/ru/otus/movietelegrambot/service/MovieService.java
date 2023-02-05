@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,11 +30,12 @@ public class MovieService {
 
         ChatInfo chatInfo = chatInfoRepository.findChatInfoById(chatId);
 
-        List<Movie> cachedMoviesByGenre = chatInfoRepository.findChatInfoById(chatId).getMovies()
-                .stream().filter(m -> m.getGenre().equals(genre)).toList();
+        boolean chachedMovieExists = chatInfo.getMovies()
+                .stream().anyMatch(m -> m.getGenre().equals(genre));
 
-        if (!cachedMoviesByGenre.isEmpty()) {
-            return getMovie(chatInfo);
+
+        if (chachedMovieExists) {
+            return getMovie(chatInfo, genre);
         } else {
             return getMovieFromApi(genre, chatInfo);
         }
@@ -44,8 +46,9 @@ public class MovieService {
         chatInfoRepository.save(new ChatInfo(id, 0, new ArrayList<>()));
     }
 
-    private Movie getMovie(ChatInfo chatInfo) {
-        Movie result = chatInfo.getMovies().remove(0);
+    private Movie getMovie(ChatInfo chatInfo, String genre) {
+        Movie result = chatInfo.getMovies().stream().filter(m -> m.getGenre().equals(genre)).findFirst().get();
+        chatInfo.getMovies().remove(result);
         chatInfoRepository.replace(chatInfo);
         return result;
     }
@@ -54,8 +57,9 @@ public class MovieService {
         try {
             chatInfo.setPage(chatInfo.getPage() + 1);
             List<Movie> newMovies = kinopoiskHttpClient.getMovieByGenreFromApi(genre, chatInfo.getPage());
-            chatInfo.setMovies(newMovies);
-            return getMovie(chatInfo);
+            chatInfo.getMovies().addAll(newMovies);
+            chatInfoRepository.replace(chatInfo);
+            return getMovie(chatInfo, genre);
         } catch (IOException | InterruptedException | URISyntaxException e) {
             log.error(ERROR_TEXT + e.getMessage());
             throw new RuntimeException(e);
